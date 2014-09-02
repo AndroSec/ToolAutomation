@@ -15,49 +15,56 @@ tree = ET.parse('../Example_Data.xml')
 root = tree.getroot()
 
 
+def extractURLDomain(url):
+	baseurl = ""
+	# Determine https vs http
+
+	if(url.find("https://") != -1):
+		baseurl = url[8:]
+	else:
+		baseurl = url[7:]
+	endIndex = baseurl.find("/")
+
+	# Just grab the domain for the url
+	baseurl = baseurl[:endIndex]
+
+	return baseurl
+
 
 def getAppStats():
 
 	count = 0
 
 	# Dict with the domain then the count
-	repo_locations = {}
+	repoLocations = {}
+	noData = 0
+
 
 	for children in root:
 		if(children.tag == "application"):
 			count += 1
 			url = children.find("source").text
 
-			# Print for debugging purposes
-			print(url)
-
 			if(url == None):
-				print(children.attrib)
+				noData += 1
 				continue
 
-			baseurl = ""
-			# Determine https vs http
+			baseurl = extractURLDomain(url)
 
-			if(url.find("https://") != -1):
-				baseurl = url[8:]
+			if(baseurl in repoLocations):
+				repoLocations[baseurl] += 1
 			else:
-				baseurl = url[7:]
-			endIndex = baseurl.find("/")
+				repoLocations[baseurl] = 1
 
-			# Just grab the domain for the url
-			baseurl = baseurl[:endIndex]
-			print(baseurl)
-
-			if(baseurl in repo_locations):
-				repo_locations[baseurl] += 1
-			else:
-				repo_locations[baseurl] = 1
+	# Sort the repo list for easier reading
+	repoLocationsSorted = sorted(repoLocations.items(), key=lambda x: x[1], reverse=True)
 
 	print("Application Count: " + str(count))
 
 	print("Repo Stats:")
-
-	for key in repo_locations.keys():
-		print(key + " : " + str(repo_locations[key]))
+	for item in repoLocationsSorted:
+		print(item[0] + " : " + str(item[1]))
+	print("==========================================================")
+	print("No Data Available: " + str(noData))
 
 getAppStats()
