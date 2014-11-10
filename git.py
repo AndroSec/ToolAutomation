@@ -1,5 +1,7 @@
 from global_vars import *
 import subprocess
+import os
+from parseXML import *
 
 def cloneGitRepo(url, destName=None):
     destPath = ""
@@ -11,6 +13,17 @@ def cloneGitRepo(url, destName=None):
 
 def getFDroidRepoData():
     cloneGitRepo("https://gitlab.com/fdroid/fdroiddata.git", F_Droid_Metadata_Repo)
+
+def checkoutVersion(path, commit):
+    '''
+    Changes the git repo at the specified path to the specified commit
+    '''
+    os.chdir(path)
+
+    subprocess.call(["git", "checkout", commit])
+
+def checkoutLatestVersion(path):
+    checkoutVersion("master")
 
 def cloneRepos(metadata, quiet_mode = False, dry_run = False):
     '''

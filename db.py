@@ -55,22 +55,203 @@ class DB(object):
 
         c = self.db.cursor()
         for version in app_metadata["version"].keys():
-            build_number = app_metadata["version"][version]
+            build_number = app_metadata["version"][version]["build"]
+            commit = app_metadata["version"][version]["commit"]
             
             c.execute('''
-                        INSERT INTO Version (appId, version, build_number) values (?,?,?)
-                ''', (app_id,version,build_number))
+                        INSERT INTO Version (appId, version, build_number, build_commit) values (?,?,?,?)
+                ''', (app_id,version,build_number,commit))
 
         if(commit_on_call):
             self.db.commit()
 
+    def add_new_underpermission(self, app_metadata, version, permission, commit_on_call = True):
+        app_id = self.get_app_id(app_metadata)
+
+        permission_id = self.get_permission_id(permission)
+
+        if(permission_id == -1):
+            permission_id = self.add_permission(permission)
+
+        version_id = self.get_version_id(app_metadata, version)
+
+        c = self.db.cursor()
+
+        c.execute('''
+                      INSERT INTO UnderPermission values (?, ?)
+            ''', (permission_id, version_id))
+
+    def add_new_overpermission(self, app_metadata, version, permission, commit_on_call = True):
+        app_id = self.get_app_id(app_metadata)
+
+        permission_id = self.get_permission_id(permission)
+
+        if(permission_id == -1):
+            permission_id = self.add_permission(permission)
+
+        version_id = self.get_version_id(app_metadata, version)
+
+        c = self.db.cursor()
+
+        c.execute('''
+                      INSERT INTO OverPermission values (?, ?)
+            ''', (permission_id, version_id))
+
+            
+
+    def add_permission(self, permission):
+        c = self.db.cursor()
+
+        c.execute('''
+                    INSERT INTO Permission (name) values (?)
+            ''', (permission,))
+        self.commit()
+
+        return self.get_permission_id(permission)
+
+    def get_version_id(self, app_metadata, version):
+        c = self.db.cursor()
+
+        app_id = self.get_app_id(app_metadata)
+
+        c.execute(''' SELECT * FROM Version where appId=:appId and version=:version ''', 
+                  {"appId" : app_id, "version": version})
+
+        result = c.fetchone()
+
+        if result != None:
+            return result[0] # The first itme here is the version id
+        else:
+            return -1
+
+
+    def get_permission_id(self, permission):
+        c = self.db.cursor()
+
+        c.execute(''' SELECT * FROM Permission where name=:name ''', {"name": permission})
+
+        result = c.fetchone()
+
+        if result != None:
+            return result[0] # The first item here is the permission id
+        else:
+            return -1 # This signals that its not created yet
+
     def get_app_id(self, app_metadata):
+        '''
+        Returns the app id for the associated application metadata
+
+        This method assumes the app was already added to the database
+        '''
         c = self.db.cursor()
 
         c.execute('''SELECT * FROM AppData WHERE name=:name and auto_name=:auto_name''', 
             {"name" : app_metadata["package"], "auto_name" : app_metadata["name"]})
 
         return c.fetchone()[0] # The first item here is the appId
+
+    def add_sonar_results(self, app_metadata, project_data, version, commit_on_call=True):
+        '''
+        Adds a new row into our database based on sonar results.
+
+        project_data -  Dict with all the results for the specified project. 
+                        Missing fields will be left as null in the db.
+        '''
+        version_id = self.get_version_id(app_metadata, version)
+
+        if version_id == -1:
+            self.add_new_app_version(app_metadata)
+            version_id = self.get_version_id(app_metadata, version)
+
+
+        c = self.db.cursor()
+
+        fields_expected = ["classes", "ncloc", "functions", 
+                          "duplicated_lines", "test_errors", "skipped_tests", 
+                          "complexity", "class_complexity", "function_complexity", 
+                          "comment_lines", "comment_lines_density", 
+                          "duplicated_lines_density", "files", "directories", 
+                          "file_complexity", "violations", "duplicated_blocks", 
+                          "duplicated_files", "lines", "blocker_violations", 
+                          "critical_violations", "major_violations", "minor_violations", 
+                          "commented_out_code_lines", "line_coverage", "branch_coverage", 
+                          "build_average_time_to_fix_failure", "build_longest_time_to_fix_failure", 
+                          "build_average_builds_to_fix_failures", "generated_lines"]
+        clean_project_data = {}
+        # Check that all the fields are there, otherwise set them to null
+        for field in fields_expected:
+            if not field in project_data.keys():
+              project_data[field] = None
+
+        project_data["versionID"] = version_id
+
+        # Build the query, this is bad and I feel bad :(
+        columns = ', '.join(project_data.keys())
+        placeholders = ':'+', :'.join(project_data.keys())
+        query = 'INSERT INTO CodingStandard (%s) VALUES (%s)' % (columns, placeholders)
+        
+
+        c.execute(query, project_data)
+
+        if commit_on_call:
+            self.commit()
+    def add_fuzzy_risk(self, app_metadata, version, fuzzy_risk, commit_on_call=True):
+        c = self.db.cursor()
+
+        version_id = self.get_version_id(app_metadata, version)
+
+        if version_id == -1:
+            self.add_new_app_version(app_metadata)
+            version_id = self.get_version_id(app_metadata, version)
+
+        c.execute(''' INSERT INTO Vulnerability (versionID, fuzzy_risk) values (?,?) ''', (version_id, fuzzy_risk))
+
+        if commit_on_call:
+            self.commit()
+
+    # Add a new intent to the Intent_Version join table
+    def add_new_intent_version(self, app_metadata, version, intent, commit_on_call = True):
+        app_id = self.get_app_id(app_metadata)
+        
+        intent_id = self.get_intent_id(intent)
+        
+        if(intent_id == -1):
+            intent_id = self.add_intent(intent)
+                
+            version_id = self.get_version_id(app_metadata, version)
+
+        c = self.db.cursor()
+    
+        c.execute('''
+            INSERT INTO Intent_Version values (?, ?)
+            ''', (intent_id, version_id))
+    
+    # Get the database id of an intent with a given name
+    def get_intent_id(self, intent):
+        c = self.db.cursor()
+        
+        c.execute(''' SELECT * FROM Intent where name=:name ''', {"name": intent})
+        
+        result = c.fetchone()
+        
+        if result != None:
+            return result[0] # The first item here is the intent id
+        else:
+            return -1 # This signals that its not created yet
+    
+    # Add a brand new intent to the Intent table
+    def add_intent(self, intent):
+        c = self.db.cursor()
+        
+        c.execute('''
+            INSERT INTO Intent (name) values (?)
+            ''', (intent,))
+        self.commit()
+        
+        return self.get_intent_id(intent)
+
+
+
 
     def commit(self):
         self.db.commit()
@@ -112,27 +293,16 @@ class DB(object):
                     )
             ''')
 
-        c.execute('''
-                    CREATE TABLE Bug (
-                      bugID int PRIMARY KEY NOT NULL,
-                      versionID int NOT NULL,
-                      line_number int,
-                      line_content text,
-                      tool_found_in text,
-                      file_located text
-                    )
-            ''')
-
         c.execute(''' 
                     CREATE TABLE Intent (
-                      intentID int PRIMARY KEY NOT NULL,
+                      intentID INTEGER PRIMARY KEY AUTOINCREMENT,
                       name text
                     )
             ''')
 
         c.execute(''' 
                     CREATE TABLE Intent_Version (
-                      intentID int NOT NULL,
+                      intentID INTEGER,
                       versionID int NOT NULL,
                       PRIMARY KEY(intentID, versionID)
                     )
@@ -166,22 +336,22 @@ class DB(object):
                       versionID INTEGER PRIMARY KEY AUTOINCREMENT,
                       appID NOT NULL,
                       version text,
-                      build_number INTEGER
+                      build_number INTEGER,
+                      build_commit text
                     )
             ''')
 
         c.execute('''
                     CREATE TABLE Vulnerability (
-                      vulnerabilityID int PRIMARY KEY NOT NULL,
                       versionID int NOT NULL,
-                      fuzzy_risk int
+                      fuzzy_risk real,
+                      PRIMARY KEY(versionID, fuzzy_risk)
                     )
             ''')
 
         c.execute(''' 
-                    CREATE TABLE coding_standard (
-                      coding_standardID int PRIMARY KEY NOT NULL,
-                      versionID int NOT NULL,
+                    CREATE TABLE CodingStandard (
+                      versionID int NOT NULL PRIMARY KEY,
                       classes int,
                       ncloc int,
                       functions int,
