@@ -170,47 +170,6 @@ def parseFDroidRepoData():
 				if len(r) != 0:
 					current_build_number = r[0][21:].strip()
 					app_metadata["current_build_number"] = int(current_build_number)
-
-				'''
-
-
-
-				
-				for line in f:
-					if (line[:10] == "Repo Type:"):
-						repo = line[10:].strip()
-
-						# Keep track of the numbers
-						if(repo in repo_type):
-							repo_type[repo] += 1
-						else:
-							repo_type[repo] = 1
-
-						app_metadata["RepoType"] = repo
-
-					elif (line[:5] == "Repo:"):
-						app_metadata["RepoURL"] = line[5:].strip()
-					elif (line[:6] == "Build:"):
-						version_string = line[6:]
-						version,build_number = version_string.split(',')
-
-						if(not("version" in app_metadata)):
-							app_metadata["version"] = {}
-						
-						app_metadata["version"][version] = int(build_number)
-					elif line.startswith("Auto Name:"):
-						app_metadata["name"] = line[10:].strip()
-					elif line.startswith("License:"):
-						app_metadata["license"] = line[8:].strip()
-					elif line.startswith("Current Version:"):
-						app_metadata["current_version"] = line[16:].strip()
-					elif line.startswith("Current Version Code:"):
-						app_metadata["current_build_number"] = int(line[21:].strip())
-					elif line.startswith("Summary:"):
-						app_metadata["summary"] = line[8:].strip()
-					elif line.startswith("Web Site:"):
-						app_metadata["website"] = line[9:].strip()
-				'''
 				f.close()
 
 			if not "name" in app_metadata.keys():
@@ -632,7 +591,7 @@ def run_sonar(metadata):
 		# For testing purposes leave as 1.0 until I can figure
 		# out how to change versions in git here
 		# For now only running the latest version
-		property_string += "sonar.projectVersion=1.0 \n"
+		#property_string += "sonar.projectVersion=1.0 \n"
 
 		# Add the standard sources file
 		property_string += "sonar.sources=src \n"
@@ -656,12 +615,14 @@ def run_sonar(metadata):
 
 	print("Creating property files")
 	# Write the property files
+	'''
 	for prop in property_strings.keys():
 		# Write using UTF-8 due to UTF-8 charactes in project names
 		print(GIT_CLONE_LOCATION + "/" + prop + "/sonar-project.properties")
 		f = codecs.open(GIT_CLONE_LOCATION + "/" + prop + "/sonar-project.properties", "w", "UTF-8-sig")
 		f.write(property_strings[prop])
 		f.close()
+	'''
 
 	# Run sonar runner
 	# This is something that can't be paralellized so run here
@@ -670,9 +631,20 @@ def run_sonar(metadata):
 	for repo in property_strings.keys():
 		os.chdir(GIT_CLONE_LOCATION + "/" + repo)
 		count += 1
+		
 		print("Running " + str(count) + " out of " + str(total))
+		#input("Continue?")
 		# Pass the key as well since it seems to hate not having it
-		subprocess.call(["/home/androsec/tools/sonar-runner-2.4/bin/sonar-runner", "-e", "-Dsonar.projectKey=" + repo])
+		for version in metadata[repo]["version"].keys():
+			commit = metadata[repo]["version"][version]["commit"]
+			checkoutVersion(GIT_CLONE_LOCATION + "/" + repo, commit)
+			# Write the props file
+			f = codecs.open(GIT_CLONE_LOCATION + "/" + repo + "/sonar-project.properties", "w", "UTF-8-sig")
+			f.write(property_strings[repo])
+			f.close()
+			subprocess.call(["/home/androsec/tools/sonar-runner-2.4/bin/sonar-runner", "-e", "-Dsonar.projectKey=" + repo , "-Dsonar.projectVersion=" + version])
+			# Cleanup
+			subprocess.call("git checkout . && git clean -f -d", shell=True)
 
 	print("Cleaning up changes")
 	
@@ -681,7 +653,8 @@ def run_sonar(metadata):
 		# Delete the property files and revert the git folder to defaut status
 		os.chdir(GIT_CLONE_LOCATION + "/" + prop)
 		subprocess.call("git checkout . && git clean -f -d", shell=True)
-	read_sonar(metadata)
+	# DONT READ YET
+	# read_sonar(metadata)
 
 def run_androrisk(metadata):
 	print("Running androrisk")
@@ -746,7 +719,7 @@ def read_androrisk(metadata):
 
 
 
-def analysis_cmd(analysis = "Androrisk"):
+def analysis_cmd(analysis = "Sonar"):
 	#print("Running analysis on all downloaded projects")
 	print("Calculating analysis count")
 
