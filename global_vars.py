@@ -19,3 +19,24 @@ app_packages = set()
 
 tree = ET.parse(F_Droid_XML_Location)
 root = tree.getroot()
+
+def runner():
+import sys
+import time
+for i in range(0, 70):
+    sys.stdout.flush()
+    counter = 0
+    while(counter < i):
+        sys.stdout.write('')
+        counter += 1
+    sys.stdout.write("#")
+    time.sleep(10)
+
+def print_processing(count, total):
+	import sys
+	sys.stdout.flush()
+	sys.stdout.write('Processing %d / %d\r' % (count, total))
+
+def clear_stdout():
+	import sys
+	sys.stdout.write('')

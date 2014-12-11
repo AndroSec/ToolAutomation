@@ -8,11 +8,19 @@ def cloneGitRepo(url, destName=None):
     if(destName != None):
         destPath = GIT_CLONE_LOCATION + "/" + destName
 
-    process = subprocess.call(["git", "clone", "-q", url, destPath])
+    process = subprocess.check_call(["git", "clone", "-q", url, destPath], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     #print(process.communicate())
 
 def getFDroidRepoData():
     cloneGitRepo("https://gitlab.com/fdroid/fdroiddata.git", F_Droid_Metadata_Repo)
+
+
+def getGitHistory(path):
+    os.chdir(path)
+
+    process = subprocess.Popen(["git", "--no-pager", "log", "--pretty=%H %aN <%aE> %ct %n%s"], stdout=subprocess.PIPE)
+
+    return process.communicate()[0]
 
 def checkoutVersion(path, commit):
     '''
@@ -67,7 +75,11 @@ def cloneRepos(metadata, quiet_mode = False, dry_run = False):
             if dry_run:
                 print("Unknown repo type: " + str(app["RepoType"]))
     if not quiet_mode and not dry_run:
-        input("About to clone " + str(len(repos_to_clone)) + " repositories. Continue? (Ctrl+C to Cancel)")
+        try:
+            input("About to clone " + str(len(repos_to_clone)) + " repositories. Continue? (Ctrl+C to Cancel)")
+        except KeyboardInterrupt as e:
+            print()
+            exit()
 
     if dry_run:
         print("Prepared to clone " + str(len(repos_to_clone)))

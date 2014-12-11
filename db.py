@@ -41,8 +41,57 @@ class DB(object):
 
 
         c.execute('''
-                    INSERT INTO AppData (name, auto_name, source_code, repo_type, license, current_version, current_build_number, website) values (?,?,?,?,?,?,?,?)
-            ''', (app_metadata["package"], app_metadata["name"], app_metadata["RepoURL"], app_metadata["RepoType"], license, current_version, current_build_number, website))
+                    INSERT INTO AppData (name, auto_name, source_code, repo_type, license, current_version, current_build_number, website, categories) values (?,?,?,?,?,?,?,?,?)
+            ''', (app_metadata["package"], app_metadata["name"], app_metadata["RepoURL"], app_metadata["RepoType"], license, current_version, current_build_number, website, app_metadata["category"]))
+
+        if(commit_on_call):
+            self.db.commit()
+
+        # Also add the versions we know about
+        self.add_new_app_version(app_metadata, commit_on_call)
+
+    def update_app(self, app_metadata, commit_on_call = True):
+        '''
+        Updates app with its associated metadata. 
+        Set commit_on_call to false when doing massive operations.
+        Below is a description of the mapping
+
+           key     ->       column
+        package          name
+        name             auto_name
+
+
+        TODO Add all mappings, to code and docs
+        '''
+        c = self.db.cursor()
+
+        app_id = self.get_app_id(app_metadata)
+
+        license = ""
+
+        if 'license' in app_metadata.keys():
+            license = app_metadata['license']
+
+        current_version = ""
+        if "current_version" in app_metadata.keys():
+            current_version = app_metadata["current_version"]
+
+        current_build_number = -1 # Default to -1 for no versions available
+        if 'current_build_number' in app_metadata.keys():
+            current_build_number = app_metadata['current_build_number']
+
+        website = ""
+        if 'website' in app_metadata.keys():
+            website = app_metadata["website"]
+
+
+        c.execute('''
+                    UPDATE AppData SET name=:name, auto_name=:auto_name, source_code=:source_code, repo_type=:repo_type, 
+                            license=:license, current_version=:current_version, current_build_number=:current_build_number, website=:website, 
+                            categories=:categories WHERE appID=:app_id''', 
+                            {'name': app_metadata["package"], 'auto_name': app_metadata["name"], 'source_code':app_metadata["RepoURL"], 
+                            'repo_type': app_metadata["RepoType"],'license': license,'current_version': current_version, 
+                            'current_build_number': current_build_number,'website': website,'categories': app_metadata["category"], 'app_id': app_id})
 
         if(commit_on_call):
             self.db.commit()
@@ -81,6 +130,9 @@ class DB(object):
                       INSERT INTO UnderPermission values (?, ?)
             ''', (permission_id, version_id))
 
+        if commit_on_call:
+            self.db.commit()
+
     def add_new_overpermission(self, app_metadata, version, permission, commit_on_call = True):
         app_id = self.get_app_id(app_metadata)
 
@@ -97,7 +149,50 @@ class DB(object):
                       INSERT INTO OverPermission values (?, ?)
             ''', (permission_id, version_id))
 
-            
+        if commit_on_call:
+            self.db.commit()
+
+    def add_stowaway_run(self, app_metadata, version, commit_on_call = True):
+        version_id = self.get_version_id(app_metadata, version)
+
+        if version_id == -1:
+            self.add_new_app_version(app_metadata)
+            version_id = self.get_version_id(app_metadata, version)
+
+        c = self.db.cursor()
+
+        c.execute(''' INSERT INTO StowawayRun values (?) ''', (version_id,))
+
+        if commit_on_call:
+            self.db.commit()
+
+    def add_androrisk_run(self, app_metadata, version, commit_on_call = True):
+        version_id = self.get_version_id(app_metadata, version)
+
+        if version_id == -1:
+            self.add_new_app_version(app_metadata)
+            version_id = self.get_version_id(app_metadata, version)
+
+        c = self.db.cursor()
+
+        c.execute(''' INSERT INTO AndroriskRun values (?) ''', (version_id,))
+
+        if commit_on_call:
+            self.db.commit()
+
+    def add_sonar_run(self, app_metadata, version, commit_on_call = True):
+        version_id = self.get_version_id(app_metadata, version)
+
+        if version_id == -1:
+            self.add_new_app_version(app_metadata)
+            version_id = self.get_version_id(app_metadata, version)
+
+        c = self.db.cursor()
+
+        c.execute(''' INSERT INTO SonarRun values (?) ''', (version_id,))
+
+        if commit_on_call:
+            self.db.commit()         
 
     def add_permission(self, permission):
         c = self.db.cursor()
@@ -195,6 +290,18 @@ class DB(object):
 
         if commit_on_call:
             self.commit()
+
+    def add_commit_item(self, app_metadata, commit_data, commit_on_call=True):
+        c = self.db.cursor()
+
+        app_id = self.get_app_id(app_metadata)
+
+        c.execute(''' INSERT INTO GitHistory (appID, commit_hash, author, email, time, summary) VALUES (?,?,?,?,?,?) ''', (app_id, commit_data["commit"], commit_data["author"], commit_data["email"], int(commit_data["time"]), commit_data["summary"]))
+
+        if commit_on_call:
+            self.commit()
+
+
     def add_fuzzy_risk(self, app_metadata, version, fuzzy_risk, commit_on_call=True):
         c = self.db.cursor()
 
@@ -218,7 +325,7 @@ class DB(object):
         if(intent_id == -1):
             intent_id = self.add_intent(intent)
                 
-            version_id = self.get_version_id(app_metadata, version)
+        version_id = self.get_version_id(app_metadata, version)
 
         c = self.db.cursor()
     
@@ -227,7 +334,7 @@ class DB(object):
             ''', (intent_id, version_id))
     
     # Get the database id of an intent with a given name
-    def get_intent_id(self, intent):
+    def get_intent_id(self, intent, commit_on_call = True):
         c = self.db.cursor()
         
         c.execute(''' SELECT * FROM Intent where name=:name ''', {"name": intent})
@@ -240,7 +347,7 @@ class DB(object):
             return -1 # This signals that its not created yet
     
     # Add a brand new intent to the Intent table
-    def add_intent(self, intent):
+    def add_intent(self, intent, commit_on_call = True):
         c = self.db.cursor()
         
         c.execute('''
@@ -384,6 +491,41 @@ class DB(object):
                       generated_lines int
                     )
             ''')
+
+        c.execute(''' 
+                    CREATE TABLE GitHistory (
+                      commitID INTEGER PRIMARY KEY AUTOINCREMENT,
+                      appID INTEGER,
+                      commit_hash text,
+                      author text,
+                      email text,
+                      time int,
+                      summary text
+                    )
+            ''')
+
+        c.execute(''' 
+                    CREATE TABLE StowawayRun (
+                      versionID int NOT NULL PRIMARY KEY
+                    )
+            ''')
+
+        c.execute(''' 
+                    CREATE TABLE AndroriskRun (
+                      versionID int NOT NULL PRIMARY KEY
+                    )
+            ''')
+
+        c.execute(''' 
+                    CREATE TABLE SonarRun (
+                      versionID int NOT NULL PRIMARY KEY
+                    )
+            ''')
+
+        c.execute(''' 
+                    CREATE INDEX GitAppID ON GitHistory (appID)
+            ''')
+
         if(commit_on_call):
             self.db.commit()
 

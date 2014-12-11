@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+
 """
 Downloads and parses the XML Data from F-Droid.
 
@@ -17,6 +18,10 @@ from global_vars import *
 import shutil
 import requests
 import re
+import sqlite3
+import time
+import sys
+import argparse
 
 
 def run_parallels(cmd, args_list, secundary_args_list = [], num_jobs = 4):
@@ -52,7 +57,8 @@ def run_parallels(cmd, args_list, secundary_args_list = [], num_jobs = 4):
 	else:
 		print("Running parallel...")
 
-	process = subprocess.call(build_call_list)
+	process = subprocess.Popen(build_call_list, stdout=subprocess.DEVNULL)
+	print(process.communicate()[0])
 
 def extractURLDomain(url):
 	baseurl = ""
@@ -308,7 +314,7 @@ def init_cmd():
 		getAppStats()
 
 	print("Cloning FDroid metadata repository")
-	#getFDroidRepoData()
+	getFDroidRepoData()
 	metadata = parseFDroidRepoData()
 	print("Clone completed")
 	
@@ -370,7 +376,7 @@ def run_stowaway(metadata):
 		if is_dev:
 			print("Found " + str(len(apks_downloaded)) + " versions of the app.")
 
-		# Create temp dir for output
+		# Setup the parallel tool
 		for apk_name in apks_downloaded:
 			#subprocess.call(['mkdir', '-p', TMP_OUTPUT_DIR + '/' + apk_name])
 
@@ -402,6 +408,7 @@ def run_stowaway(metadata):
 		for directory in second_list:
 			subprocess.call(['mkdir', '-p', directory])
 
+		print("Running batch of " + str(count + increment) + " out of " + str(len(primary_parallel_args)))
 		# Run through the parallels tool, but only use 1 core. The app itself uses a bit more than 1 CPU, so for our
 		# current system it slows the whole thing down a bit.
 		# If we get a more powerful system, bump this up to 2
@@ -455,7 +462,7 @@ def read_stowaway_data(metadata):
 		if os.path.isfile(file_path + "/Overprivilege"):
 			for line in open(file_path + "/Overprivilege"):
 				try:
-					db.add_new_overpermission(app_metadata, version, line, commit_on_call = False)
+					db.add_new_overpermission(app_metadata, version, line, commit_on_call=False)
 				except Exception as e:
 					print("Problem adding overpermission")
 					print(e)
@@ -469,7 +476,7 @@ def read_stowaway_data(metadata):
 		if os.path.isfile(file_path + "/Underprivilege"):
 			for line in open(file_path + "/Underprivilege"):
 				try:
-					db.add_new_underpermission(app_metadata, version, line, commit_on_call = False)
+					db.add_new_underpermission(app_metadata, version, line, commit_on_call=False)
 				except Exception as e:
 					print("Problem adding underpermission")
 					print(e)
@@ -483,7 +490,7 @@ def read_stowaway_data(metadata):
 		if os.path.isfile(file_path + "/IntentResults/allActions.txt"):
 			for line in open(file_path + "/IntentResults/allActions.txt"):
 				try:
-					db.add_new_intent_version(app_metadata, version, line, commit_on_call = False)
+					db.add_new_intent_version(app_metadata, version, line, commit_on_call=False)
 				except Exception as e:
 					print("Problem adding intent")
 					print(e)
@@ -492,6 +499,10 @@ def read_stowaway_data(metadata):
 					print("Version: " + version)
 				else:
 					print("No intents found for " + pkg_name)
+		try:
+			db.add_stowaway_run(app_metadata, version, commit_on_call=False)
+		except sqlite3.IntegrityError as e:
+			pass
 
 	# Save the results
 	db.commit()
@@ -499,45 +510,139 @@ def read_stowaway_data(metadata):
 	print("Cleaning up the directory")
 	shutil.rmtree(TMP_OUTPUT_DIR) # Deletes the dir completely
 
-def read_sonar(metadata):
-	API_CALL = "/api/resources?metrics=classes,ncloc,functions,duplicated_lines,test_errors,skipped_tests,complexity,class_complexity,function_complexity,comment_lines,comment_lines_density,duplicated_lines_density,files,directories,file_complexity,violations,duplicated_blocks,duplicated_files,lines,blocker_violations,critical_violations,major_violations,minor_violations,commented_out_code_lines,line_coverage,branch_coverage,build_average_time_to_fix_failure,build_longest_time_to_fix_failure,build_average_builds_to_fix_failures,generated_lines"
-
-	url = SONAR_HOST + API_CALL
-
-	r = requests.get(url)
-
-	json_data = r.json()
-
+def read_sonar(metadata ):
+	'''
+	Reads the data collected from sonar
+	'''
+	# Init the db
 	db = DB(DB_LOCATION)
-	for item in json_data:
-		# Grab the project attributes from Sonar
-		project = item["msr"]
 
-		# Grab the package name from the json
-		pkg_name = item["key"]
+	# Get the version information that sonar has for each version
+	# This is used to make sure that the data is consistent since 
+	# versions are not in any particular order
+	VERSION_API_CALL = "/api/projects/index?versions=true"
 
-		# Convert project values into a simpler to read format for the db
-		project_data = {}
-		for i in project:
-			project_data[i["key"]] = float(i["val"])
+	version_url = SONAR_HOST + VERSION_API_CALL
 
-		latest_version = -1
-		# Try to figure out what the latest version is if we don't know
-		if not "current_version" in metadata[pkg_name]:
-			versions = sorted(list(metadata[pkg_name]["version"].keys()))
-			latest_version = versions[-1] # Pick the latest version
-		else:
-			latest_version = metadata[pkg_name]["current_version"]
+	r = requests.get(version_url)
+	'''
+	Version Data Format
 
-		# Insert into the db
-		db.add_sonar_results(metadata[pkg_name], project_data, latest_version, commit_on_call=False)
+	Version Data is a json array of data returned. Each item follows the same
+	structure.
+
+	item json hash table
+		id - The id of the project (Useful inside of Sonar only)
+		k  - The project key or package name (Used to map back to our data)
+		nm - The application name (Useful for debugging)
+		sc - The application scope (Not Used - Sonar Specific)
+		qu - The application qualifier (Not used - Sonar Specific)
+		lv - Latest version for the application (Only present if there's multiple versions)
+		v  - Version information, see bellow
+
+	Version Information hash table
+		The version information table is a dynamic hash table where
+		the keys are the version of the app the the values:
+			sid - Internal version number (Unused)
+			d   - A timestamp for the analysis of that version (Important)
+	'''
+	version_data = r.json()
+
+	sonar_version_timestamps = {}
+	print("Collecting version information")
+	for i in version_data:
+		package_name = i["k"]
+		if "v" in i:
+			versions_sonar = i["v"]
+			sonar_version_timestamps[package_name] = {}
+			for version in versions_sonar.keys():
+				# Save the timestamps
+				timestamp = versions_sonar[version]["d"]
+				sonar_version_timestamps[package_name][timestamp] = version
+
+	
+	print("Version information collected")
+	print("Processing individual projects")
+	total_count = len(sonar_version_timestamps.keys())
+	count = 1
+	for project in sonar_version_timestamps.keys():
+		print_processing(count, total_count)
+		'''
+		Time machine data is in the following format:
+		cols  - Description of each field in the cells component
+		cells - Dict containing details for every version
+
+					d - Timestamp for the version
+					v - The values corresponding to the cols above for this version 
+		'''
+		TIME_MACHINE_API_CALL = "/api/timemachine?resource=" + project + "&metrics=classes,ncloc,functions,duplicated_lines,test_errors,skipped_tests,complexity,class_complexity,function_complexity,comment_lines,comment_lines_density,duplicated_lines_density,files,directories,file_complexity,violations,duplicated_blocks,duplicated_files,lines,blocker_violations,critical_violations,major_violations,minor_violations,commented_out_code_lines,line_coverage,branch_coverage,build_average_time_to_fix_failure,build_longest_time_to_fix_failure,build_average_builds_to_fix_failures,generated_lines,version"
+
+		raw_project_data = requests.get(SONAR_HOST + TIME_MACHINE_API_CALL).json()[0]
+
+		cols = []
+
+		for metric in raw_project_data["cols"]:
+			cols.append(metric["metric"])
+
+		# Build the project data objects for every version
+		for version_data in raw_project_data["cells"]:
+			timestamp = version_data["d"]
+
+			project_data = {}
+
+			# Build the project data dictionary
+			for i in range(len(cols)):
+				key = cols[i]
+				val = version_data["v"][i]
+
+				project_data[key] = val
+
+			version = -1
+			# If there's a time stamp missmatch lets try to make our best guess
+			if not timestamp in sonar_version_timestamps[project]:
+				# If there's only 1 version, then we can assume its the only one
+				if len(metadata[project]["version"].keys()) == 1:
+					# Get the first version we have on record
+					version = list(metadata[project]["version"].keys())[0]
+				elif len(metadata[project]["version"].keys()) - len(sonar_version_timestamps[project].keys()) == 1:
+					# This means that sonar is missing 1 record for whatever reason, lets 
+					# figure out which on it is
+					for v in metadata[project]["version"].keys():
+						if not v in sonar_version_timestamps[project].values():
+							version = v
+							break
+				else:
+					# If we hit this point its assumed that its bad data, discard the results
+					# Printing stuff for future reference, but nothing to be done here
+					print("Ran into an issue:")
+					print(str(len(metadata[project]["version"].keys()) - len(sonar_version_timestamps[project].keys())))
+					print(timestamp)
+					print(raw_project_data["cells"])
+					print(project)
+					print(sonar_version_timestamps[project])
+					print(metadata[project]["version"])
+					continue # Skip this data set
+					#input("Continue?")
+			else:
+				# Grab the version based on the timestamp
+				version = sonar_version_timestamps[project][timestamp]
+			try:
+				db.add_sonar_results(metadata[project], project_data, version, commit_on_call=False)
+				db.add_sonar_run(metadata[project], version, commit_on_call=False)
+			except sqlite3.IntegrityError as e:
+				# Ignore the error
+				print("Duplicate detected in " + project + " (" + str(version) + " )")
 
 
-	# Save the results
+		# Keep track of progress
+		count += 1
+	clear_stdout()
+	print("Done reading sonar")
 	db.commit()
 
 
 def run_sonar(metadata):
+	start_time = time.time()
 	git_repos = os.listdir(GIT_CLONE_LOCATION)
 	git_repos.remove('fdroiddata')
 
@@ -628,6 +733,8 @@ def run_sonar(metadata):
 	# This is something that can't be paralellized so run here
 	count = 0
 	total = len(property_strings.keys())
+	errors = []
+	timeouts = []
 	for repo in property_strings.keys():
 		os.chdir(GIT_CLONE_LOCATION + "/" + repo)
 		count += 1
@@ -635,24 +742,47 @@ def run_sonar(metadata):
 		print("Running " + str(count) + " out of " + str(total))
 		#input("Continue?")
 		# Pass the key as well since it seems to hate not having it
-		for version in metadata[repo]["version"].keys():
+		for version in sorted(metadata[repo]["version"].keys()):
 			commit = metadata[repo]["version"][version]["commit"]
 			checkoutVersion(GIT_CLONE_LOCATION + "/" + repo, commit)
 			# Write the props file
 			f = codecs.open(GIT_CLONE_LOCATION + "/" + repo + "/sonar-project.properties", "w", "UTF-8-sig")
 			f.write(property_strings[repo])
 			f.close()
-			subprocess.call(["/home/androsec/tools/sonar-runner-2.4/bin/sonar-runner", "-e", "-Dsonar.projectKey=" + repo , "-Dsonar.projectVersion=" + version])
-			# Cleanup
-			subprocess.call("git checkout . && git clean -f -d", shell=True)
 
-	print("Cleaning up changes")
-	
+			try:
+				# Try to run the analysis, timeout after 5 minutes since sometimes they can lock up
+				subprocess.check_call([	"/home/androsec/tools/sonar-runner-2.4/bin/sonar-runner", "-e", "-Dsonar.projectKey=" + repo , 
+										"-Dsonar.projectVersion=" + version ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300 )
+			except subprocess.TimeoutExpired as e:
+				print("Timeout on " + str(repo) + " (" + str(version) + ")")
+				timeouts.append(str(repo) + " (" + str(version) + ")")
+			except subprocess.CalledProcessError as e:
+				print("Encountered error on " + str(repo) + " (" + str(version) + ")")
+				errors.append(str(repo) + " (" + str(version) + ")")
+
+			# Cleanup
+			subprocess.check_call("git checkout . && git clean -f -d", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+
+	# Calculate the time to run
+	run_time = time.time() - start_time
+
+	#print("Cleaning up changes")
+	print("-------------------------")
+	print("      Run Summary")
+	print("-------------------------")
+	print("Errors:   " + str(len(errors)))
+	print("Timeouts: " + str(len(timeouts)))
+	print("Completion Time: " + str(run_time)) + " s"
+	print("-------------------------")
+
+	'''
 	# Cleanup start
 	for prop in property_strings.keys():
 		# Delete the property files and revert the git folder to defaut status
 		os.chdir(GIT_CLONE_LOCATION + "/" + prop)
 		subprocess.call("git checkout . && git clean -f -d", shell=True)
+	'''
 	# DONT READ YET
 	# read_sonar(metadata)
 
@@ -709,17 +839,68 @@ def read_androrisk(metadata):
 		with open(TMP_OUTPUT_DIR + "/" + i) as f:
 			for line in f:
 				# Save the risk in the db
-				db.add_fuzzy_risk(app_metadata, version, line, commit_on_call=False)
+				db.add_fuzzy_risk(app_metadata, version, line, commit_on_call = False)
+				db.add_androrisk_run(app_metadata, version, commit_on_call = False)
 			f.close()
 	db.commit()
 
 	print("Cleaning up the directory")
 	shutil.rmtree(TMP_OUTPUT_DIR) # Deletes the dir completely
 
+def read_git_history(metadata):
+
+	db = DB(DB_LOCATION)
+
+	repos = os.listdir(GIT_CLONE_LOCATION)
+
+	repos.remove('fdroiddata')
+	print("Starting git history collection")
+	commit_metadata = {}
+
+	count = 1
+	total_count = len(repos)
+	for package_name in repos:
+		print_processing(count, total_count)
+		path = GIT_CLONE_LOCATION + "/" + package_name
+		#print(path)
+
+		history = getGitHistory(path)
+		history = codecs.decode(history, "utf-8", "ignore") #Ignore any errors
+
+		# Regex to identify commit
+		commit_regex = re.compile("(.*\n.*\n)", re.UNICODE)
+
+		# Regex for each item in the commit line
+		fields_regex = re.compile("(^.*)( .*)( <.*>)( \d*)(\s*.*)", re.UNICODE)
+		commits = []
+		for commit_line in commit_regex.findall(history):
+			fields = fields_regex.findall(commit_line)
+
+			if len(fields) == 0:
+				continue
+
+			commit_data = {}
+
+			fields = fields[0]
+
+			commit_data["commit"] 	= fields[0]
+			commit_data["author"] 	= fields[1]
+			commit_data["email"]	= fields[2]
+			commit_data["time"] 	= fields[3]
+			commit_data["summary"] 	= fields[4].strip()
+
+			commits.append(commit_data)
+
+			db.add_commit_item(metadata[package_name], commit_data, commit_on_call=False)
+
+		commit_metadata[package_name] = commits
+		count += 1
+	
+	db.commit()
 
 
 
-def analysis_cmd(analysis = "Sonar"):
+def analysis_cmd(analysis = "AllReadSonar"):
 	#print("Running analysis on all downloaded projects")
 	print("Calculating analysis count")
 
@@ -747,20 +928,45 @@ def analysis_cmd(analysis = "Sonar"):
 		run_stowaway(new_metadata)
 	elif analysis == "Sonar":
 		run_sonar(new_metadata)
+	elif analysis == "ReadSonar":
+		read_sonar(new_metadata)
 	elif analysis == "Androrisk":
 		run_androrisk(new_metadata)
+	elif analysis == "Git":
+		read_git_history(new_metadata)
+	elif analysis == "AllShort":
+		run_androrisk(new_metadata)
+		read_sonar(new_metadata)
+		read_git_history(new_metadata)
+	elif analysis == "AllReadSonar":
+		run_stowaway(new_metadata)
+		run_androrisk(new_metadata)
+		read_sonar(new_metadata)
+		read_git_history(new_metadata)
 	elif analysis == "All":
 		# Run all of them
 		run_stowaway(new_metadata)
 		run_sonar(new_metadata)
 		run_androrisk(new_metadata)
+		read_git_history(new_metadata)
 	else:
 		print("No valid analysis passed")
 		
 
+def update_cmd(update_type = "AppData"):
+	print("Updating " + update_type)
 
+	_set_env_variables()
+	
+	db = DB(DB_LOCATION)
 
+	metadata = parseFDroidRepoData()
+	
+	for app in metadata.keys():
+		if is_app_valid(metadata[app]):
+			db.update_app(metadata[app], commit_on_call = False)
 
+	db.commit()
 
 
 def main():
@@ -774,6 +980,8 @@ def main():
 		init_cmd()
 	elif sys.argv[1] == "analysis":
 		analysis_cmd()
+	elif sys.argv[1] == "update":
+		update_cmd()
 	elif sys.argv[1] == "stats":
 		print(parseFDroidRepoData())
 
