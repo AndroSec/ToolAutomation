@@ -1,0 +1,13 @@
+Description: Use the apklist.txt file to update the AndroSec 
+
+
+- I added a boolean column "isAPKExists" to the version table.
+
+
+Files: 
+	apklist.txt - List of apkFiles to be searched
+
+
+
+
+
