@@ -33,6 +33,23 @@ def checkoutVersion(path, commit):
 def checkoutLatestVersion(path):
     checkoutVersion("master")
 
+
+### Clone all the repos. 
+###     Written by DK to take place of the pareleel function that I could not get working
+def cloneAllRepos(repos_to_clone, dest_clones):
+
+
+    #print(repos_to_clone)
+    #print(dest_clones)
+
+    for i in range(len(repos_to_clone)):       
+        #print(repos_to_clone[i])
+        Repo.clone_from(repos_to_clone[i], "dir")
+    print("**********************************************clone all repos")
+    exit()
+
+
+
 def cloneRepos(metadata, quiet_mode = False, dry_run = False):
     '''
     Clones a set of repos based on the metadata passed in.
@@ -45,7 +62,7 @@ def cloneRepos(metadata, quiet_mode = False, dry_run = False):
         - RepoType: (git-svn, git, hg, bzr)
         - RepoURL: Remote url for the repository
     '''
-
+    quiet_mode=True  ## DK
     repos_to_clone = []
     dest_clones = []
     for key in metadata.keys():
@@ -81,7 +98,10 @@ def cloneRepos(metadata, quiet_mode = False, dry_run = False):
             print()
             exit()
 
+
+
     if dry_run:
         print("Prepared to clone " + str(len(repos_to_clone)))
     else:
         run_parallels("git clone -q", repos_to_clone, dest_clones)
+        #cloneAllRepos(repos_to_clone, dest_clones)

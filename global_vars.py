@@ -3,9 +3,9 @@ import xml.etree.ElementTree as ET
 """
 Global config variables
 """
-GIT_CLONE_LOCATION = "/tmp/gitClones"
-APK_DOWNLOAD_DIR = "/tmp/apk"
-TMP_OUTPUT_DIR = "/tmp/output"
+GIT_CLONE_LOCATION = "gitClones"
+APK_DOWNLOAD_DIR = "apk"
+TMP_OUTPUT_DIR = "output"
 TOOLS_LOCATION = "../../tools"
 DB_LOCATION = "../db.sqlite3"
 SONAR_HOST = "http://vm-009.casci.rit.edu:9000"
@@ -33,10 +33,10 @@ def runner():
         time.sleep(10)
 
 def print_processing(count, total):
-	import sys
-	sys.stdout.flush()
-	sys.stdout.write('Processing %d / %d\r' % (count, total))
+    import sys
+    sys.stdout.flush()
+    sys.stdout.write('Processing %d / %d\r' % (count, total))
 
 def clear_stdout():
-	import sys
-	sys.stdout.write('')
+    import sys
+    sys.stdout.write('')

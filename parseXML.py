@@ -34,8 +34,9 @@ def run_parallels(cmd, args_list, secundary_args_list = [], num_jobs = 4):
 	- num_jobs
 			Number of concurrent jobs to run 
 	'''
-
+	
 	build_call_list = ["parallel", "--gnu" ,"--progress", "--eta", "-j", str(num_jobs)]
+	print("39")
 	if len(secundary_args_list) > 0:
 		build_call_list += ["--xapply"] # --x-apply for more modern systems
 
@@ -51,14 +52,15 @@ def run_parallels(cmd, args_list, secundary_args_list = [], num_jobs = 4):
 			build_call_list.append(i)
 
 
-	if is_dev:
-		print(" ".join(build_call_list))
-		input("Continue?")
-	else:
-		print("Running parallel...")
+	#if is_dev:
+	#	print(" ".join(build_call_list))
+	#	input("Continue?")
+	#else:
+	#	print("Running parallel...")
 
-	process = subprocess.Popen(build_call_list, stdout=subprocess.DEVNULL)
-	print(process.communicate()[0])
+	process = subprocess.Popen(build_call_list)
+	#print(process.communicate()[0])
+	print("62")
 
 def extractURLDomain(url):
 	baseurl = ""
@@ -201,7 +203,7 @@ def getAPKs(metadata, quiet_mode = False, dry_run = False):
 		# https://f-droid.org/repo/org.zeroxlab.zeroxbenchmark_9.apk
 		for i in versions.values():
 			url = "https://f-droid.org/repo/" + key + "_" + str(i["build"]) + ".apk"
-			print(url)
+			#print(url)
 			urls_to_download.append(url)
 			download_locations.append(APK_DOWNLOAD_DIR + "/" + key + "_" + str(i["build"]) + ".apk")
 
@@ -210,7 +212,17 @@ def getAPKs(metadata, quiet_mode = False, dry_run = False):
 			print(urls_to_download[i])
 			print(download_locations[i])
 	else:
-		run_parallels("wget -c -P " + APK_DOWNLOAD_DIR, urls_to_download, num_jobs=8)
+		print("181")
+		#print("183")
+		#print("wget -c -P " + APK_DOWNLOAD_DIR)
+		#run_parallels("wget -c -P apk/", urls_to_download, num_jobs=8)
+
+		### DK. Just loop through things and download it all manually
+
+		#print("here")
+		#print(urls_to_download)
+
+
 
 def numberOfVersions(app_data):
 	if("version" in app_data):
@@ -260,22 +272,23 @@ def _set_env_variables():
 	if len(sys.argv) > 2 and sys.argv[2] == "production":
 		# Set location of all repos
 		global GIT_CLONE_LOCATION
-		GIT_CLONE_LOCATION = '/home/androsec/repos'
+		#GIT_CLONE_LOCATION = 'repos'
+		GIT_CLONE_LOCATION = 'gitClones'
 
 		global is_dev
 		is_dev = False
 
 		global APK_DOWNLOAD_DIR
-		APK_DOWNLOAD_DIR = '/home/androsec/apks'
+		APK_DOWNLOAD_DIR = 'apks'
 
 		global TMP_OUTPUT_DIR
-		TMP_OUTPUT_DIR = '/home/androsec/output'
+		TMP_OUTPUT_DIR = 'output'
 
 		global TOOLS_LOCATION
-		TOOLS_LOCATION = '/home/androsec/tools'
+		TOOLS_LOCATION = 'tools'
 
 		global DB_LOCATION
-		DB_LOCATION = '/home/androsec/db.sqlite3'
+		DB_LOCATION = 'db.sqlite3'
 
 def is_app_valid(app_metadata):
 	'''
@@ -301,8 +314,8 @@ def init_cmd():
 
 	if len(sys.argv) >= 3:
 		print("Running in production mode")
-		if not(len(sys.argv) == 4 and (sys.argv[3] == "-q" or sys.argv[3] == "--quiet")):
-			input("Press enter to continue (Crt+C to Cancel)")
+		#if not(len(sys.argv) == 4 and (sys.argv[3] == "-q" or sys.argv[3] == "--quiet")):
+			#input("Press enter to continue (Crt+C to Cancel)")
 	else:
 		print("Running in development mode, no source control repos cloning")
 		dev_mode = True
@@ -314,7 +327,7 @@ def init_cmd():
 		getAppStats()
 
 	print("Cloning FDroid metadata repository")
-	getFDroidRepoData()
+	#getFDroidRepoData()
 	metadata = parseFDroidRepoData()
 	print("Clone completed")
 	
@@ -356,496 +369,6 @@ def find_apks(package_name):
 			ret.append(apk)
 
 	return ret
-
-
-def run_stowaway(metadata):
-	primary_parallel_args = []
-	secundary_parallel_args = []
-	for app in metadata:
-		app_metadata = metadata[app]
-
-		if is_dev:
-			print("Running Stowaway on : " + app_metadata["name"])
-		apks_downloaded = find_apks(app_metadata["package"])
-
-		# Check if there's enough apks to run this process
-		if(len(apks_downloaded) == 0):
-			print("No apks found for " + app_metadata["package"])
-			print("Try running the downloader again?")
-			continue
-		if is_dev:
-			print("Found " + str(len(apks_downloaded)) + " versions of the app.")
-
-		# Setup the parallel tool
-		for apk_name in apks_downloaded:
-			#subprocess.call(['mkdir', '-p', TMP_OUTPUT_DIR + '/' + apk_name])
-
-			primary_parallel_args.append(APK_DOWNLOAD_DIR + '/' + apk_name)
-			secundary_parallel_args.append(TMP_OUTPUT_DIR + '/' + apk_name)
-
-	# Change the current working directory to the stowaway one, since it uses relative paths
-	os.chdir(TOOLS_LOCATION + '/stowaway')
-
-	# Since stowaway takes so long, split it in runs of 20
-	increment = 20
-	# Keep track of the current index
-	count = 0
-
-	# A makeshift loop that goes in intervals of increment till it completes the list
-	# of apks to analyze
-	while count < len(primary_parallel_args):
-
-		first_list = []
-		second_list = []
-		if count + increment < len(primary_parallel_args):
-			first_list = primary_parallel_args[count : count + increment]
-			second_list = secundary_parallel_args[count : count + increment]
-		else:
-			first_list = primary_parallel_args[count : ]
-			second_list = secundary_parallel_args[count : ]
-
-		# Create the output directories
-		for directory in second_list:
-			subprocess.call(['mkdir', '-p', directory])
-
-		print("Running batch of " + str(count + increment) + " out of " + str(len(primary_parallel_args)))
-		# Run through the parallels tool, but only use 1 core. The app itself uses a bit more than 1 CPU, so for our
-		# current system it slows the whole thing down a bit.
-		# If we get a more powerful system, bump this up to 2
-		run_parallels(TOOLS_LOCATION + '/stowaway/stowaway.sh', first_list, second_list, num_jobs=2)
-
-		read_stowaway_data(metadata)
-
-		count += increment
-
-
-def read_stowaway_data(metadata):
-	'''
-	Reads data from the output directory for stowaway.
-
-	The data will be stored in a database after its read, then deleted.
-	'''
-	# Start the DB
-	db = DB(DB_LOCATION)
-	# Get directory packages
-	packages = os.listdir(TMP_OUTPUT_DIR)
-
-	# Go through all the results in the output dir
-	for pkg in packages:
-		
-		pkg_name = '_'.join(pkg.split("_")[:-1])
-		build_num = int(pkg.split("_")[-1].split('.')[0])
-		print(pkg_name + " | " + str(build_num))
-
-		if not pkg_name in metadata.keys():
-			continue
-
-		app_metadata = metadata[pkg_name]
-
-		versions = app_metadata["version"]
-		version = -1
-
-		# Find the version that we are looking at based on the build number
-		for k in versions.keys():
-			if versions[k]["build"] == build_num:
-				print("Version: " + k + " Build: " + str(versions[k]["build"]))
-				version = k
-				break
-
-		if version == -1:
-			print("ERROR: Something went really wrong here")
-			print("Problem at: " + pkg_name + " | " + str(build_num))
-			continue
-
-		file_path = TMP_OUTPUT_DIR + '/' + pkg
-		
-		if os.path.isfile(file_path + "/Overprivilege"):
-			for line in open(file_path + "/Overprivilege"):
-				try:
-					db.add_new_overpermission(app_metadata, version, line, commit_on_call=False)
-				except Exception as e:
-					print("Problem adding overpermission")
-					print(e)
-					print("Permission: " + line)
-					print("App: " + pkg_name)
-					print("Version: " + version)
-				
-		else:
-			print("No over permissions for " + pkg_name)
-
-		if os.path.isfile(file_path + "/Underprivilege"):
-			for line in open(file_path + "/Underprivilege"):
-				try:
-					db.add_new_underpermission(app_metadata, version, line, commit_on_call=False)
-				except Exception as e:
-					print("Problem adding underpermission")
-					print(e)
-					print("Permission: " + line)
-					print("App: " + pkg_name)
-					print("Version: " + version)
-		else:
-			print("No under permissions for " + pkg_name)
-
-		# Look through all intents and attempt to add them to the database
-		if os.path.isfile(file_path + "/IntentResults/allActions.txt"):
-			for line in open(file_path + "/IntentResults/allActions.txt"):
-				try:
-					db.add_new_intent_version(app_metadata, version, line, commit_on_call=False)
-				except Exception as e:
-					print("Problem adding intent")
-					print(e)
-					print("Intent: " + line)
-					print("App: " + pkg_name)
-					print("Version: " + version)
-				else:
-					print("No intents found for " + pkg_name)
-		try:
-			db.add_stowaway_run(app_metadata, version, commit_on_call=False)
-		except sqlite3.IntegrityError as e:
-			pass
-
-	# Save the results
-	db.commit()
-
-	print("Cleaning up the directory")
-	shutil.rmtree(TMP_OUTPUT_DIR) # Deletes the dir completely
-
-def read_sonar(metadata ):
-	'''
-	Reads the data collected from sonar
-	'''
-	# Init the db
-	db = DB(DB_LOCATION)
-
-	# Get the version information that sonar has for each version
-	# This is used to make sure that the data is consistent since 
-	# versions are not in any particular order
-	VERSION_API_CALL = "/api/projects/index?versions=true"
-
-	version_url = SONAR_HOST + VERSION_API_CALL
-
-	r = requests.get(version_url)
-	'''
-	Version Data Format
-
-	Version Data is a json array of data returned. Each item follows the same
-	structure.
-
-	item json hash table
-		id - The id of the project (Useful inside of Sonar only)
-		k  - The project key or package name (Used to map back to our data)
-		nm - The application name (Useful for debugging)
-		sc - The application scope (Not Used - Sonar Specific)
-		qu - The application qualifier (Not used - Sonar Specific)
-		lv - Latest version for the application (Only present if there's multiple versions)
-		v  - Version information, see bellow
-
-	Version Information hash table
-		The version information table is a dynamic hash table where
-		the keys are the version of the app the the values:
-			sid - Internal version number (Unused)
-			d   - A timestamp for the analysis of that version (Important)
-	'''
-	version_data = r.json()
-
-	sonar_version_timestamps = {}
-	print("Collecting version information")
-	for i in version_data:
-		package_name = i["k"]
-		if "v" in i:
-			versions_sonar = i["v"]
-			sonar_version_timestamps[package_name] = {}
-			for version in versions_sonar.keys():
-				# Save the timestamps
-				timestamp = versions_sonar[version]["d"]
-				sonar_version_timestamps[package_name][timestamp] = version
-
-	
-	print("Version information collected")
-	print("Processing individual projects")
-	total_count = len(sonar_version_timestamps.keys())
-	count = 1
-	for project in sonar_version_timestamps.keys():
-		print_processing(count, total_count)
-		'''
-		Time machine data is in the following format:
-		cols  - Description of each field in the cells component
-		cells - Dict containing details for every version
-
-					d - Timestamp for the version
-					v - The values corresponding to the cols above for this version 
-		'''
-		TIME_MACHINE_API_CALL = "/api/timemachine?resource=" + project + "&metrics=classes,ncloc,functions,duplicated_lines,test_errors,skipped_tests,complexity,class_complexity,function_complexity,comment_lines,comment_lines_density,duplicated_lines_density,files,directories,file_complexity,violations,duplicated_blocks,duplicated_files,lines,blocker_violations,critical_violations,major_violations,minor_violations,commented_out_code_lines,line_coverage,branch_coverage,build_average_time_to_fix_failure,build_longest_time_to_fix_failure,build_average_builds_to_fix_failures,generated_lines,version"
-
-		raw_project_data = requests.get(SONAR_HOST + TIME_MACHINE_API_CALL).json()[0]
-
-		cols = []
-
-		for metric in raw_project_data["cols"]:
-			cols.append(metric["metric"])
-
-		# Build the project data objects for every version
-		for version_data in raw_project_data["cells"]:
-			timestamp = version_data["d"]
-
-			project_data = {}
-
-			# Build the project data dictionary
-			for i in range(len(cols)):
-				key = cols[i]
-				val = version_data["v"][i]
-
-				project_data[key] = val
-
-			version = -1
-			# If there's a time stamp missmatch lets try to make our best guess
-			if not timestamp in sonar_version_timestamps[project]:
-				# If there's only 1 version, then we can assume its the only one
-				if len(metadata[project]["version"].keys()) == 1:
-					# Get the first version we have on record
-					version = list(metadata[project]["version"].keys())[0]
-				elif len(metadata[project]["version"].keys()) - len(sonar_version_timestamps[project].keys()) == 1:
-					# This means that sonar is missing 1 record for whatever reason, lets 
-					# figure out which on it is
-					for v in metadata[project]["version"].keys():
-						if not v in sonar_version_timestamps[project].values():
-							version = v
-							break
-				else:
-					# If we hit this point its assumed that its bad data, discard the results
-					# Printing stuff for future reference, but nothing to be done here
-					print("Ran into an issue:")
-					print(str(len(metadata[project]["version"].keys()) - len(sonar_version_timestamps[project].keys())))
-					print(timestamp)
-					print(raw_project_data["cells"])
-					print(project)
-					print(sonar_version_timestamps[project])
-					print(metadata[project]["version"])
-					continue # Skip this data set
-					#input("Continue?")
-			else:
-				# Grab the version based on the timestamp
-				version = sonar_version_timestamps[project][timestamp]
-			try:
-				db.add_sonar_results(metadata[project], project_data, version, commit_on_call=False)
-				db.add_sonar_run(metadata[project], version, commit_on_call=False)
-			except sqlite3.IntegrityError as e:
-				# Ignore the error
-				print("Duplicate detected in " + project + " (" + str(version) + " )")
-
-
-		# Keep track of progress
-		count += 1
-	clear_stdout()
-	print("Done reading sonar")
-	db.commit()
-
-
-def run_sonar(metadata):
-	start_time = time.time()
-	git_repos = os.listdir(GIT_CLONE_LOCATION)
-	git_repos.remove('fdroiddata')
-
-	count = 0
-	repos_with_src = []
-	repos_with_modules = {}
-	for repo in git_repos:
-		#print(repo)
-		listing = os.listdir(GIT_CLONE_LOCATION + '/' + repo)
-		if 'src' in listing:
-			count += 1
-			repos_with_src.append(repo)
-		else:
-			# Try to find multi module projects
-			modules = []
-			for folder in listing:
-				# Make sure it's a folder
-				if not os.path.isdir(GIT_CLONE_LOCATION + '/' + repo + '/' + folder):
-					continue
-
-				folder_list = os.listdir(GIT_CLONE_LOCATION + '/' + repo + '/' + folder)
-				if 'src' in folder_list:
-					# We have found a sub-module, add it
-					modules.append(folder)
-
-			if len(modules) > 0:
-				count += 1
-				repos_with_modules[repo] = modules
-				
-	unknown_projects = len(git_repos) - count
-	if unknown_projects > 0:
-		print("Runnning sonar on " + str(count) + " projects.")
-		print("Couldn't detect the folder structure of " + 
-				str(unknown_projects) + " projects.")
-
-	property_strings = {}
-
-	# Build the property strings for simple projects and module
-	# projects, since they share the same intial properties
-	for repo in (repos_with_src + list(repos_with_modules.keys())):
-		property_string = ""
-
-		# Add the project key
-		# Repo happens to be the pakcage name too!
-		property_string += "sonar.projectKey=" + repo.replace(".", ":") + " \n" 
-
-		# Add the project name
-		property_string += "sonar.projectName=" + metadata[repo]["name"] + " \n"
-
-		# Add the project version
-		# For testing purposes leave as 1.0 until I can figure
-		# out how to change versions in git here
-		# For now only running the latest version
-		#property_string += "sonar.projectVersion=1.0 \n"
-
-		# Add the standard sources file
-		property_string += "sonar.sources=src \n"
-
-		# Add the project base dir
-		#property_string += "sonar.projectBaseDir=" + GIT_CLONE_LOCATION + "/" + repo + " \n"
-
-		# Add to the dictionary
-		property_strings[repo] = property_string
-
-	# Go over the module projects and add the modules property
-	for repo in repos_with_modules.keys():
-		# Get the already setup string of properties
-		property_string = property_strings[repo]
-
-		#Set the modules from the dicovery from before
-		property_string += "sonar.modules=" + (",".join(repos_with_modules[repo])) + " \n"
-
-		# Save the result
-		property_strings[repo] = property_string
-
-	print("Creating property files")
-	# Write the property files
-	'''
-	for prop in property_strings.keys():
-		# Write using UTF-8 due to UTF-8 charactes in project names
-		print(GIT_CLONE_LOCATION + "/" + prop + "/sonar-project.properties")
-		f = codecs.open(GIT_CLONE_LOCATION + "/" + prop + "/sonar-project.properties", "w", "UTF-8-sig")
-		f.write(property_strings[prop])
-		f.close()
-	'''
-
-	# Run sonar runner
-	# This is something that can't be paralellized so run here
-	count = 0
-	total = len(property_strings.keys())
-	errors = []
-	timeouts = []
-	for repo in property_strings.keys():
-		os.chdir(GIT_CLONE_LOCATION + "/" + repo)
-		count += 1
-		
-		print("Running " + str(count) + " out of " + str(total))
-		#input("Continue?")
-		# Pass the key as well since it seems to hate not having it
-		for version in sorted(metadata[repo]["version"].keys()):
-			commit = metadata[repo]["version"][version]["commit"]
-			checkoutVersion(GIT_CLONE_LOCATION + "/" + repo, commit)
-			# Write the props file
-			f = codecs.open(GIT_CLONE_LOCATION + "/" + repo + "/sonar-project.properties", "w", "UTF-8-sig")
-			f.write(property_strings[repo])
-			f.close()
-
-			try:
-				# Try to run the analysis, timeout after 5 minutes since sometimes they can lock up
-				subprocess.check_call([	"/home/androsec/tools/sonar-runner-2.4/bin/sonar-runner", "-e", "-Dsonar.projectKey=" + repo , 
-										"-Dsonar.projectVersion=" + version ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300 )
-			except subprocess.TimeoutExpired as e:
-				print("Timeout on " + str(repo) + " (" + str(version) + ")")
-				timeouts.append(str(repo) + " (" + str(version) + ")")
-			except subprocess.CalledProcessError as e:
-				print("Encountered error on " + str(repo) + " (" + str(version) + ")")
-				errors.append(str(repo) + " (" + str(version) + ")")
-
-			# Cleanup
-			subprocess.check_call("git checkout . && git clean -f -d", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
-
-	# Calculate the time to run
-	run_time = time.time() - start_time
-
-	#print("Cleaning up changes")
-	print("-------------------------")
-	print("      Run Summary")
-	print("-------------------------")
-	print("Errors:   " + str(len(errors)))
-	print("Timeouts: " + str(len(timeouts)))
-	print("Completion Time: " + str(run_time)) + " s"
-	print("-------------------------")
-
-	'''
-	# Cleanup start
-	for prop in property_strings.keys():
-		# Delete the property files and revert the git folder to defaut status
-		os.chdir(GIT_CLONE_LOCATION + "/" + prop)
-		subprocess.call("git checkout . && git clean -f -d", shell=True)
-	'''
-	# DONT READ YET
-	# read_sonar(metadata)
-
-def run_androrisk(metadata):
-	print("Running androrisk")
-	
-	# Create the TMP_OUTPUT_DIR
-	subprocess.call(['mkdir', '-p', TMP_OUTPUT_DIR])
-
-	primary_parallel_args = []
-	secundary_parallel_args = []
-	for app in metadata.keys():
-		app_metadata = metadata[app]
-
-		apks = find_apks(app_metadata["package"])
-
-		for i in apks:
-			primary_parallel_args.append(APK_DOWNLOAD_DIR + "/" + i + " " + TMP_OUTPUT_DIR + "/" + i + ".txt")
-	os.chdir('/home/androsec/tools/androguard')
-	run_parallels('/home/androsec/tools/androguard/run_androguard.sh ', primary_parallel_args)
-	read_androrisk(metadata)
-
-def read_androrisk(metadata):
-	# Start the db
-	db = DB(DB_LOCATION)
-
-	for i in os.listdir(TMP_OUTPUT_DIR):
-		pkg = i[:-3]
-
-		pkg_name = '_'.join(pkg.split("_")[:-1])
-		build_num = int(pkg.split("_")[-1].split('.')[0])
-		print(pkg_name + " | " + str(build_num))
-
-		if not pkg_name in metadata.keys():
-			continue
-
-		app_metadata = metadata[pkg_name]
-
-		versions = app_metadata["version"]
-		version = -1
-
-		# Find the version that we are looking at based on the build number
-		for k in versions.keys():
-			if versions[k]["build"] == build_num:
-				# print("Version: " + k + " Build: " + str(versions[k]["build"]))
-				version = k
-				break
-
-		if version == -1:
-			print("ERROR: Something went really wrong here")
-			print("Problem at: " + pkg_name + " | " + str(build_num))
-			continue
-
-		with open(TMP_OUTPUT_DIR + "/" + i) as f:
-			for line in f:
-				# Save the risk in the db
-				db.add_fuzzy_risk(app_metadata, version, line, commit_on_call = False)
-				db.add_androrisk_run(app_metadata, version, commit_on_call = False)
-			f.close()
-	db.commit()
-
-	print("Cleaning up the directory")
-	shutil.rmtree(TMP_OUTPUT_DIR) # Deletes the dir completely
 
 def read_git_history(metadata):
 
@@ -924,33 +447,9 @@ def analysis_cmd(analysis = "AllReadSonar"):
 		input("Press enter to continue (Crtl+C to Cancel)")
 
 	# RUN ANALYSIS
-	if analysis == "Stowaway":
-		run_stowaway(new_metadata)
-	elif analysis == "Sonar":
-		run_sonar(new_metadata)
-	elif analysis == "ReadSonar":
-		read_sonar(new_metadata)
-	elif analysis == "Androrisk":
-		run_androrisk(new_metadata)
-	elif analysis == "Git":
+
 		read_git_history(new_metadata)
-	elif analysis == "AllShort":
-		run_androrisk(new_metadata)
-		read_sonar(new_metadata)
-		read_git_history(new_metadata)
-	elif analysis == "AllReadSonar":
-		run_stowaway(new_metadata)
-		run_androrisk(new_metadata)
-		read_sonar(new_metadata)
-		read_git_history(new_metadata)
-	elif analysis == "All":
-		# Run all of them
-		run_stowaway(new_metadata)
-		run_sonar(new_metadata)
-		run_androrisk(new_metadata)
-		read_git_history(new_metadata)
-	else:
-		print("No valid analysis passed")
+
 		
 
 def update_cmd(update_type = "AppData"):
@@ -970,6 +469,12 @@ def update_cmd(update_type = "AppData"):
 
 
 def main():
+
+	#### DK - Remove the SQLite file if it exists
+	db = "db.sqlite3"	## Should tie this into the global variable
+	if os.path.exists(db):
+		os.remove(db)
+
 	if len(sys.argv) == 1:
 		print("Usage: python parseXML.py <init | analysis | stats | help> <production | dev> <extra args>")
 		return
@@ -984,6 +489,11 @@ def main():
 		update_cmd()
 	elif sys.argv[1] == "stats":
 		print(parseFDroidRepoData())
+	elif sys.argv[1] == "dan":
+		print("Run dans code")
+		metadata = parseFDroidRepoData()
+		getAPKs(metadata)
+		print("937")
 
 			
 
